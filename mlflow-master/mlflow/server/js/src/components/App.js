@@ -1,9 +1,8 @@
 import React, { Component } from 'react';
 import './App.css';
 import logo from '../static/home-logo.png';
-import ExperimentPage from './ExperimentPage';
 import {
-  BrowserRouter as Router,
+  HashRouter as Router,
   Route,
   Link,
 } from 'react-router-dom';
@@ -14,13 +13,17 @@ import CompareRunPage from './CompareRunPage';
 import AppErrorBoundary from './error-boundaries/AppErrorBoundary';
 import { connect } from 'react-redux';
 import HomePage from './HomePage';
+import ErrorModal from './modals/ErrorModal';
+import PageNotFoundView from './PageNotFoundView';
+import { Switch } from 'react-router';
 
 class App extends Component {
   render() {
     return (
       <Router>
-        <div>
-          <header className="App-header">
+        <div style={{height: "100vh"}}>
+          <ErrorModal/>
+          {process.env.HIDE_HEADER === 'true' ? null : <header className="App-header">
             <div className="mlflow-logo">
               <Link
                 to={Routes.rootRoute}
@@ -30,7 +33,7 @@ class App extends Component {
               </Link>
             </div>
             <div className="header-links">
-              <a href={'https://github.com/databricks/mlflow'}>
+              <a href={'https://github.com/mlflow/mlflow'}>
                 <div className="github">
                   <span>GitHub</span>
                 </div>
@@ -41,17 +44,16 @@ class App extends Component {
                 </div>
               </a>
             </div>
-          </header>
+          </header>}
           <AppErrorBoundary>
-            { /* Since the experiment list side bar goes outside of the 80% width put outside of div */ }
-            <Route exact path={Routes.rootRoute} component={HomePage}/>
-            <Route exact path={Routes.experimentPageRoute} component={HomePage}/>
-            { /* App-content ensures 80% width */ }
-            <div className="App-content">
-                <Route exact path={Routes.runPageRoute} component={RunPage}/>
-                <Route exact path={Routes.metricPageRoute} component={MetricPage}/>
-                <Route exact path={Routes.compareRunPageRoute} component={CompareRunPage}/>
-            </div>
+            <Switch>
+              <Route exact path={Routes.rootRoute} component={HomePage}/>
+              <Route exact path={Routes.experimentPageRoute} component={HomePage}/>
+              <Route exact path={Routes.runPageRoute} component={RunPage}/>
+              <Route exact path={Routes.metricPageRoute} component={MetricPage}/>
+              <Route exact path={Routes.compareRunPageRoute} component={CompareRunPage}/>
+              <Route component={PageNotFoundView}/>
+            </Switch>
           </AppErrorBoundary>
         </div>
       </Router>

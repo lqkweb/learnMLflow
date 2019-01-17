@@ -107,8 +107,18 @@ h1 {
   color: #333;
 }
 
+h1 a, h1 a:hover, h1 a:active, h1 a:visited {
+  color: #333;
+}
+
 h2 {
   font-size: 18px;
+  font-weight: normal;
+  color: #333;
+}
+
+h3 {
+  font-size: 16px;
   font-weight: normal;
   color: #333;
 }
@@ -142,4 +152,46 @@ table th {
   background-color: #fafafa;
   color: #888888;
   font-weight: 500;
+}
+
+/* Overrides for bootstrap modal */
+.modal-body {
+  padding: 16px;
+  padding-bottom: 8px;
+}
+
+.modal-footer {
+  border-top: 0px;
+  padding-top: 0px;
+}
+
+.modal-footer .btn+.btn {
+  margin-left: 16px;
+}
+
+.truncate-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.single-line {
+  height: 1.3em;
+}
+
+.unselectable {
+  -moz-user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+img.center {
+  display: block;
+  margin: 0 auto;
+}
+
+.plotly-notifier, .plotly-notifier.notifier-note {
+  font-family: inherit !important;
+  font-size: 13px !important;
 }

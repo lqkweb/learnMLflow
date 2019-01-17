@@ -1,5 +1,7 @@
 from abc import abstractmethod, ABCMeta
 
+from mlflow.entities import ViewType
+
 
 class AbstractStore:
     """
@@ -17,19 +19,22 @@ class AbstractStore:
         pass
 
     @abstractmethod
-    def list_experiments(self):
+    def list_experiments(self, view_type=ViewType.ACTIVE_ONLY):
         """
-        :return: a list of all known Experiment objects
+
+        :param view_type: Qualify requested type of experiments.
+        :return: a list of Experiment objects stored in store for requested view.
         """
         pass
 
     @abstractmethod
-    def create_experiment(self, name):
+    def create_experiment(self, name, artifact_location):
         """
         Creates a new experiment.
         If an experiment with the given name already exists, throws exception.
 
         :param name: Desired name for an experiment
+        :param artifact_location: Base location for artifacts in runs. May be None.
         :return: experiment_id (integer) for the newly created experiment if successful, else None
         """
         pass
@@ -37,10 +42,39 @@ class AbstractStore:
     @abstractmethod
     def get_experiment(self, experiment_id):
         """
-        Fetches the experiment from the backend store.
+        Fetches the experiment by ID from the backend store.
+        Throws an exception if experiment is not found or permanently deleted.
 
         :param experiment_id: Integer id for the experiment
         :return: A single Experiment object if it exists, otherwise raises an Exception.
+        """
+        pass
+
+    @abstractmethod
+    def delete_experiment(self, experiment_id):
+        """
+        Deletes the experiment from the backend store. Deleted experiments can be restored until
+        permanently deleted.
+
+        :param experiment_id: Integer id for the experiment
+        """
+        pass
+
+    @abstractmethod
+    def restore_experiment(self, experiment_id):
+        """
+        Restore deleted experiment unless it is permanently deleted.
+
+        :param experiment_id: Integer id for the experiment
+        """
+        pass
+
+    @abstractmethod
+    def rename_experiment(self, experiment_id, new_name):
+        """
+        Update an experiment's name. The new name must be unique.
+
+        :param experiment_id: Integer id for the experiment
         """
         pass
 
@@ -62,7 +96,7 @@ class AbstractStore:
         pass
 
     def create_run(self, experiment_id, user_id, run_name, source_type, source_name,
-                   entry_point_name, start_time, source_version, tags):
+                   entry_point_name, start_time, source_version, tags, parent_run_id):
         """
         Creates a run under the specified experiment ID, setting the run's status to "RUNNING"
         and the start time to the current time.
@@ -71,6 +105,22 @@ class AbstractStore:
         :param user_id: ID of the user launching this run
         :param source_type: Enum (integer) describing the source of the run
         :return: The created Run object
+        """
+        pass
+
+    @abstractmethod
+    def delete_run(self, run_id):
+        """
+        Deletes a run.
+        :param run_id:
+        """
+        pass
+
+    @abstractmethod
+    def restore_run(self, run_id):
+        """
+        Restores a run.
+        :param run_id:
         """
         pass
 
@@ -87,6 +137,14 @@ class AbstractStore:
         Logs a param for the specified run
         :param run_uuid: String id for the run
         :param param: Param instance to log
+        """
+        pass
+
+    def set_tag(self, run_uuid, tag):
+        """
+        Sets a tag for the specified run
+        :param run_uuid: String id for the run
+        :param tag: RunTag instance to set
         """
         pass
 
@@ -127,7 +185,7 @@ class AbstractStore:
         pass
 
     @abstractmethod
-    def search_runs(self, experiment_ids, search_expressions):
+    def search_runs(self, experiment_ids, search_expressions, run_view_type):
         """
         Returns runs that match the given list of search expressions within the experiments.
         Given multiple search expressions, all these expressions are ANDed together for search.
@@ -140,7 +198,7 @@ class AbstractStore:
         pass
 
     @abstractmethod
-    def list_run_infos(self, experiment_id):
+    def list_run_infos(self, experiment_id, run_view_type):
         """
         Returns run information for runs which belong to the experiment_id
 

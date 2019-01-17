@@ -1,13 +1,14 @@
 import { combineReducers } from 'redux';
 import {
+  CLOSE_ERROR_MODAL,
   fulfilled, GET_EXPERIMENT_API, GET_RUN_API, isFulfilledApi, isPendingApi,
   isRejectedApi,
   LIST_ARTIFACTS_API,
-  LIST_EXPERIMENTS_API, SEARCH_RUNS_API,
+  LIST_EXPERIMENTS_API, OPEN_ERROR_MODAL, SEARCH_RUNS_API, SET_TAG_API,
 } from '../Actions';
-import { Experiment, Run, Param, RunInfo, RunTag } from '../sdk/MlflowMessages'
+import {Experiment, Param, RunInfo, RunTag } from '../sdk/MlflowMessages';
 import { ArtifactNode } from '../utils/ArtifactUtils';
-import { metricsByRunUuid } from './MetricReducer';
+import { metricsByRunUuid, latestMetricsByRunUuid } from './MetricReducer';
 
 export const getExperiments = (state) => {
   return Object.values(state.entities.experimentsById);
@@ -19,21 +20,23 @@ export const getExperiment = (id, state) => {
 
 const experimentsById = (state = {}, action) => {
   switch (action.type) {
-    case fulfilled(LIST_EXPERIMENTS_API):
+    case fulfilled(LIST_EXPERIMENTS_API): {
       let newState = Object.assign({}, state);
-      if (action.payload) {
+      if (action.payload && action.payload.experiments) {
         action.payload.experiments.forEach((eJson) => {
           const experiment = Experiment.fromJs(eJson);
-          newState = Object.assign(newState, { [experiment.getExperimentId()]: experiment });
-        })
+          newState = Object.assign(newState, {[experiment.getExperimentId()]: experiment});
+        });
       }
       return newState;
-    case fulfilled(GET_EXPERIMENT_API):
-      const { experiment } = action.payload;
+    }
+    case fulfilled(GET_EXPERIMENT_API): {
+      const {experiment} = action.payload;
       return {
         ...state,
         [experiment.experiment_id]: Experiment.fromJs(experiment),
       };
+    }
     default:
       return state;
   }
@@ -63,7 +66,7 @@ const runInfosByUuid = (state = {}, action) => {
         action.payload.runs.forEach((rJson) => {
           const runInfo = RunInfo.fromJs(rJson);
           newState = amendRunInfosByUuid(newState, runInfo);
-        })
+        });
       }
       return newState;
     }
@@ -77,7 +80,7 @@ const runInfosByUuid = (state = {}, action) => {
         action.payload.runs.forEach((rJson) => {
           const runInfo = RunInfo.fromJs(rJson.info);
           newState = amendRunInfosByUuid(newState, runInfo);
-        })
+        });
       }
       return newState;
     }
@@ -103,46 +106,37 @@ export const getParams = (runUuid, state) => {
 };
 
 const paramsByRunUuid = (state = {}, action) => {
+  const paramArrToObject = (params) => {
+    const paramObj = {};
+    params.forEach((p) => paramObj[p.key] = Param.fromJs(p));
+    return paramObj;
+  };
   switch (action.type) {
     case fulfilled(GET_RUN_API): {
-      const runInfo = RunInfo.fromJs(action.payload.run.info);
-      return amendParamsByRunUuid(state, action.payload.run.data.params, runInfo.getRunUuid());
+      const run = action.payload.run;
+      const runUuid = run.info.run_uuid;
+      const params = run.data.params || [];
+      const newState = { ...state };
+      newState[runUuid] = paramArrToObject(params);
+      return newState;
     }
     case fulfilled(SEARCH_RUNS_API): {
       const runs = action.payload.runs;
-      let newState = { ...state };
+      const newState = { ...state };
       if (runs) {
-          runs.forEach((rJson) => {
-            const run = Run.fromJs(rJson);
-            newState = amendParamsByRunUuid(
-              newState, rJson.data.params, run.getInfo().getRunUuid());
-          });
+        runs.forEach((rJson) => {
+          const runUuid = rJson.info.run_uuid;
+          const params = rJson.data.params || [];
+          newState[runUuid] = paramArrToObject(params);
+        });
       }
       return newState;
-
     }
     default:
       return state;
   }
 };
 
-const amendParamsByRunUuid = (state, params, runUuid) => {
-  let newState = { ...state };
-  if (params) {
-    params.forEach((pJson) => {
-      const param = Param.fromJs(pJson);
-      const oldParams = newState[runUuid] ? newState[runUuid] : {};
-      newState = {
-        ...newState,
-        [runUuid]: {
-          ...oldParams,
-          [param.getKey()]: param,
-        }
-      }
-    });
-  }
-  return newState;
-};
 
 export const getRunTags = (runUuid, state) => {
   const tags = state.entities.tagsByRunUuid[runUuid];
@@ -154,22 +148,35 @@ export const getRunTags = (runUuid, state) => {
 };
 
 const tagsByRunUuid = (state = {}, action) => {
+  const tagArrToObject = (tags) => {
+    const tagObj = {};
+    tags.forEach((tag) => tagObj[tag.key] = RunTag.fromJs(tag));
+    return tagObj;
+  };
   switch (action.type) {
     case fulfilled(GET_RUN_API): {
       const runInfo = RunInfo.fromJs(action.payload.run.info);
-      return amendTagsByRunUuid(state, action.payload.run.info.tags, runInfo.getRunUuid());
+      const tags = action.payload.run.data.tags || [];
+      const runUuid = runInfo.getRunUuid();
+      const newState = {...state};
+      newState[runUuid] = tagArrToObject(tags);
+      return newState;
     }
     case fulfilled(SEARCH_RUNS_API): {
       const runs = action.payload.runs;
-      let newState = { ...state };
+      const newState = { ...state };
       if (runs) {
-          runs.forEach((rJson) => {
-            const run = Run.fromJs(rJson);
-            newState = amendTagsByRunUuid(
-              newState, rJson.info.tags, run.getInfo().getRunUuid());
-          });
+        runs.forEach((rJson) => {
+          const runUuid = rJson.info.run_uuid;
+          const tags = rJson.data.tags || [];
+          newState[runUuid] = tagArrToObject(tags);
+        });
       }
       return newState;
+    }
+    case fulfilled(SET_TAG_API): {
+      const tag = {key: action.meta.key, value: action.meta.value};
+      return amendTagsByRunUuid(state, [tag], action.meta.runUuid);
     }
     default:
       return state;
@@ -188,7 +195,7 @@ const amendTagsByRunUuid = (state, tags, runUuid) => {
           ...oldTags,
           [tag.getKey()]: tag,
         }
-      }
+      };
     });
   }
   return newState;
@@ -205,14 +212,14 @@ const artifactsByRunUuid = (state = {}, action) => {
       const runUuid = action.meta.runUuid;
       let artifactNode = state[runUuid] || new ArtifactNode(true);
       // Make deep copy.
-      artifactNode = JSON.parse(JSON.stringify(artifactNode));
+      artifactNode = artifactNode.deepCopy();
 
       const files = action.payload.files;
       // Do not coerce these out of JSON because we use JSON.parse(JSON.stringify
       // to deep copy. This does not work on the autogenerated immutable objects.
       if (queryPath === undefined) {
         // If queryPath is undefined, then we should set the root's children.
-        ArtifactNode.setChildren(artifactNode, files);
+        artifactNode.setChildren(files);
       } else {
         // Otherwise, traverse the queryPath to get to the appropriate artifact node.
         const pathParts = queryPath.split("/");
@@ -221,12 +228,12 @@ const artifactsByRunUuid = (state = {}, action) => {
           curArtifactNode = curArtifactNode.children[part];
         });
         // Then set children on that artifact node.
-        ArtifactNode.setChildren(curArtifactNode, files);
+        curArtifactNode.setChildren(files);
       }
       return {
         ...state,
         [runUuid]: artifactNode,
-      }
+      };
     }
     default:
       return state;
@@ -255,6 +262,7 @@ const entities = combineReducers({
   experimentsById,
   runInfosByUuid,
   metricsByRunUuid,
+  latestMetricsByRunUuid,
   paramsByRunUuid,
   tagsByRunUuid,
   artifactsByRunUuid,
@@ -273,14 +281,12 @@ const apis = (state = {}, action) => {
       ...state,
       [action.meta.id]: { id: action.meta.id, active: true }
     };
-  }
-  else if (isFulfilledApi(action)) {
+  } else if (isFulfilledApi(action)) {
     return {
       ...state,
       [action.meta.id]: { id: action.meta.id, active: false, data: action.payload }
     };
-  }
-  else if (isRejectedApi(action)) {
+  } else if (isRejectedApi(action)) {
     return {
       ...state,
       [action.meta.id]: { id: action.meta.id, active: false, error: action.payload }
@@ -290,7 +296,44 @@ const apis = (state = {}, action) => {
   }
 };
 
+export const isErrorModalOpen = (state) => {
+  return state.views.errorModal.isOpen;
+};
+
+export const getErrorModalText = (state) => {
+  return state.views.errorModal.text;
+};
+
+const errorModalDefault = {
+  isOpen: false,
+  text: '',
+};
+
+const errorModal = (state = errorModalDefault, action) => {
+  switch (action.type) {
+    case CLOSE_ERROR_MODAL: {
+      return {
+        ...state,
+        isOpen: false,
+      };
+    }
+    case OPEN_ERROR_MODAL: {
+      return {
+        isOpen: true,
+        text: action.text,
+      };
+    }
+    default:
+      return state;
+  }
+};
+
+const views = combineReducers({
+  errorModal,
+});
+
 export const rootReducer = combineReducers({
   entities,
+  views,
   apis,
 });

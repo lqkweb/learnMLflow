@@ -3,7 +3,7 @@ from mlflow.protos.service_pb2 import RunTag as ProtoRunTag
 
 
 class RunTag(_MLflowObject):
-
+    """Tag object associated with a run."""
     def __init__(self, key, value):
         self._key = key
         self._value = value
@@ -16,10 +16,12 @@ class RunTag(_MLflowObject):
 
     @property
     def key(self):
+        """String name of the tag."""
         return self._key
 
     @property
     def value(self):
+        """String value of the tag."""
         return self._value
 
     def to_proto(self):
@@ -31,8 +33,3 @@ class RunTag(_MLflowObject):
     @classmethod
     def from_proto(cls, proto):
         return cls(proto.key, proto.value)
-
-    @classmethod
-    def _properties(cls):
-        # TODO: Hard coding this list of props for now. There has to be a clearer way...
-        return ["key", "value"]

@@ -1,14 +1,31 @@
 from mlflow.entities._mlflow_object import _MLflowObject
-from mlflow.entities.run_tag import RunTag
+from mlflow.exceptions import MlflowException
 
 from mlflow.protos.service_pb2 import RunInfo as ProtoRunInfo
 
 
+def check_run_is_active(run_info):
+    if run_info.lifecycle_stage != RunInfo.ACTIVE_LIFECYCLE:
+        raise MlflowException('The run {} must be in an active lifecycle_stage.'
+                              .format(run_info.run_uuid))
+
+
+def check_run_is_deleted(run_info):
+    if run_info.lifecycle_stage != RunInfo.DELETED_LIFECYCLE:
+        raise MlflowException('The run {} must be in an deleted lifecycle_stage.'
+                              .format(run_info.run_uuid))
+
+
 class RunInfo(_MLflowObject):
+    """
+    Metadata about a run.
+    """
+    ACTIVE_LIFECYCLE = "active"
+    DELETED_LIFECYCLE = "deleted"
 
     def __init__(self, run_uuid, experiment_id, name, source_type, source_name, entry_point_name,
-                 user_id, status, start_time, end_time, source_version, tags, artifact_uri=None):
-        """ Class containing metadata for a run. """
+                 user_id, status, start_time, end_time, source_version, lifecycle_stage,
+                 artifact_uri=None):
         if run_uuid is None:
             raise Exception("run_uuid cannot be None")
         if experiment_id is None:
@@ -36,7 +53,7 @@ class RunInfo(_MLflowObject):
         self._start_time = start_time
         self._end_time = end_time
         self._source_version = source_version
-        self._tags = tags
+        self._lifecycle_stage = lifecycle_stage
         self._artifact_uri = artifact_uri
 
     def __eq__(self, other):
@@ -45,67 +62,88 @@ class RunInfo(_MLflowObject):
             return self.__dict__ == other.__dict__
         return False
 
-    def copy_with_overrides(self, status, end_time):
-        """ Returns a copy the current RunInfo with certain attributes modified """
+    def _copy_with_overrides(self, status=None, end_time=None, lifecycle_stage=None):
+        """A copy of the RunInfo with certain attributes modified."""
         proto = self.to_proto()
-        proto.status = status
+        if status:
+            proto.status = status
         if end_time:
             proto.end_time = end_time
+        if lifecycle_stage:
+            proto.lifecycle_stage = lifecycle_stage
         return RunInfo.from_proto(proto)
 
     @property
     def run_uuid(self):
+        """String containing run UUID."""
         return self._run_uuid
 
     @property
     def experiment_id(self):
+        """Integer ID of the experiment for the current run."""
         return self._experiment_id
 
     @property
     def name(self):
+        """String name of the run."""
         return self._name
 
     @property
     def source_type(self):
+        """
+        :py:class:`mlflow.entities.SourceType` describing the source of the run.
+        """
         return self._source_type
 
     @property
     def source_name(self):
+        """
+        String name of the source of the run (GitHub URI of the project corresponding to the run,
+        etc).
+        """
         return self._source_name
 
     @property
     def entry_point_name(self):
+        """String name of the entry point for the run."""
         return self._entry_point_name
 
     @property
     def user_id(self):
+        """String ID of the user who initiated this run."""
         return self._user_id
 
     @property
     def status(self):
+        """
+        One of the values in :py:class:`mlflow.entities.RunStatus`
+        describing the status of the run.
+        """
         return self._status
 
     @property
     def start_time(self):
-        """ Start time of the run, in number of milliseconds since the UNIX epoch. """
+        """Start time of the run, in number of milliseconds since the UNIX epoch."""
         return self._start_time
 
     @property
     def end_time(self):
-        """ End time of the run, in number of milliseconds since the UNIX epoch. """
+        """End time of the run, in number of milliseconds since the UNIX epoch."""
         return self._end_time
 
     @property
     def source_version(self):
+        """String Git commit hash of the code used for the run, if available."""
         return self._source_version
 
     @property
-    def tags(self):
-        return self._tags
+    def artifact_uri(self):
+        """String root artifact URI of the run."""
+        return self._artifact_uri
 
     @property
-    def artifact_uri(self):
-        return self._artifact_uri
+    def lifecycle_stage(self):
+        return self._lifecycle_stage
 
     def to_proto(self):
         proto = ProtoRunInfo()
@@ -123,29 +161,21 @@ class RunInfo(_MLflowObject):
             proto.end_time = self.end_time
         if self.source_version:
             proto.source_version = self.source_version
-        proto.tags.extend([tag.to_proto() for tag in self.tags])
         if self.artifact_uri:
             proto.artifact_uri = self.artifact_uri
+        proto.lifecycle_stage = self.lifecycle_stage
         return proto
 
     @classmethod
     def from_proto(cls, proto):
-        tags = [RunTag.from_proto(proto_tag) for proto_tag in proto.tags]
-        return cls(proto.run_uuid, proto.experiment_id, proto.name, proto.source_type,
-                   proto.source_name, proto.entry_point_name, proto.user_id, proto.status,
-                   proto.start_time, proto.end_time, proto.source_version, tags,
-                   proto.artifact_uri)
-
-    @classmethod
-    def from_dictionary(cls, the_dict):
-        info = cls(**the_dict)
-        # We must manually deserialize tags into proto tags
-        info._tags = the_dict.get("tags", [])
-        return info
-
-    @classmethod
-    def _properties(cls):
-        # TODO: Hard coding this list of props for now. There has to be a clearer way...
-        return ["run_uuid", "experiment_id", "name", "source_type", "source_name",
-                "entry_point_name", "user_id", "status", "start_time", "end_time",
-                "source_version", "tags", "artifact_uri"]
+        end_time = proto.end_time
+        # The proto2 default scalar value of zero indicates that the run's end time is absent.
+        # An absent end time is represented with a NoneType in the `RunInfo` class
+        if end_time == 0:
+            end_time = None
+        return cls(run_uuid=proto.run_uuid, experiment_id=proto.experiment_id, name=proto.name,
+                   source_type=proto.source_type, source_name=proto.source_name,
+                   entry_point_name=proto.entry_point_name, user_id=proto.user_id,
+                   status=proto.status, start_time=proto.start_time, end_time=end_time,
+                   source_version=proto.source_version, lifecycle_stage=proto.lifecycle_stage,
+                   artifact_uri=proto.artifact_uri)

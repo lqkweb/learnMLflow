@@ -1,58 +1,118 @@
 import base64
-import os
+import time
+import logging
 import json
+from json import JSONEncoder
 
-from databricks_cli.configure import provider
+import numpy
 import requests
 
-from mlflow.utils.logging_utils import eprint
+from mlflow.utils.string_utils import strip_suffix
+from mlflow.exceptions import MlflowException, RestException
 
 
-def get_databricks_hostname_and_auth():
+RESOURCE_DOES_NOT_EXIST = 'RESOURCE_DOES_NOT_EXIST'
+
+
+_logger = logging.getLogger(__name__)
+
+
+def http_request(host_creds, endpoint, retries=3, retry_interval=3, **kwargs):
     """
-    Reads the hostname & auth token to use for running on Databricks from the config file created
-    by the Databricks CLI. Returns a tuple of (hostname, auth, token) to use when making API
-    requests.
+    Makes an HTTP request with the specified method to the specified hostname/endpoint. Retries
+    up to `retries` times if a request fails with a server error (e.g. error code 500), waiting
+    `retry_interval` seconds between successive retries. Parses the API response (assumed to be
+    JSON) into a Python object and returns it.
+
+    :param host_creds: A :py:class:`mlflow.rest_utils.MlflowHostCreds` object containing
+        hostname and optional authentication.
+    :return: Parsed API response
     """
-    home_dir = os.path.expanduser("~")
-    cfg_file = os.path.join(home_dir, ".databrickscfg")
-    if not os.path.exists(cfg_file):
-        raise Exception("Could not find profile for Databricks CLI in %s. Make sure the the "
-                        "Databricks CLI is installed and that credentials have been "
-                        "configured as described in "
-                        "https://github.com/databricks/databricks-cli" % cfg_file)
-    else:
-        config = provider.get_config_for_profile(provider.DEFAULT_SECTION)
-        if config.username is not None and config.password is not None:
-            return config.host, (config.username, config.password), config.token
-        return config.host, None, config.token
+    hostname = host_creds.host
+    auth_str = None
+    if host_creds.username and host_creds.password:
+        basic_auth_str = ("%s:%s" % (host_creds.username, host_creds.password)).encode("utf-8")
+        auth_str = "Basic " + base64.standard_b64encode(basic_auth_str).decode("utf-8")
+    elif host_creds.token:
+        auth_str = "Bearer %s" % host_creds.token
 
+    headers = {}
+    if auth_str:
+        headers['Authorization'] = auth_str
 
-def databricks_api_request(endpoint, method, req_body_json=None, params=None):
+    verify = not host_creds.ignore_tls_verification
 
-    hostname, auth, token = get_databricks_hostname_and_auth()
-    final_endpoint = "/api/2.0/%s" % endpoint
-    if token is not None:
-        token_bytes = ("token:%s" % token).encode("utf-8")
-        headers = {
-            "Authorization": "Basic " + base64.standard_b64encode(token_bytes).decode("utf-8")
-        }
-    else:
-        headers = None
-    # TODO: Remove `verify=False`, currently need it to run against dev shards.
-    return http_request(hostname=hostname, endpoint=final_endpoint, method=method, auth=auth,
-                        headers=headers, req_body_json=req_body_json, params=params)
-
-
-def http_request(hostname, endpoint, method, auth, headers, req_body_json, params, retries=3):
-    url = "%s%s" % (hostname, endpoint)
+    cleaned_hostname = strip_suffix(hostname, '/')
+    url = "%s%s" % (cleaned_hostname, endpoint)
     for i in range(retries):
-        response = requests.request(method=method, url=url, headers=headers, verify=False,
-                                    params=params, json=req_body_json, auth=auth)
-        if response.status_code == 200:
-            return json.loads(response.text)
+        response = requests.request(url=url, headers=headers, verify=verify, **kwargs)
+        if response.status_code >= 200 and response.status_code < 500:
+            return response
         else:
-            eprint("API request to %s failed with code %s != 200, retrying up to %s more times. "
-                   "API response body: %s" % (url, response.status_code, retries - i - 1,
-                                              response.text))
-    raise Exception("API request to %s failed to return code 200 after %s tries" % (url, retries))
+            _logger.error(
+                "API request to %s failed with code %s != 200, retrying up to %s more times. "
+                "API response body: %s",
+                url, response.status_code, retries - i - 1, response.text)
+            time.sleep(retry_interval)
+    raise MlflowException("API request to %s failed to return code 200 after %s tries" %
+                          (url, retries))
+
+
+def _can_parse_as_json(string):
+    try:
+        json.loads(string)
+        return True
+    except ValueError:
+        return False
+
+
+def http_request_safe(host_creds, endpoint, **kwargs):
+    """
+    Wrapper around ``http_request`` that also verifies that the request succeeds with code 200.
+    """
+    response = http_request(host_creds=host_creds, endpoint=endpoint, **kwargs)
+    if response.status_code != 200:
+        base_msg = "API request to endpoint %s failed with error code " \
+                   "%s != 200" % (endpoint, response.status_code)
+        if _can_parse_as_json(response.text):
+            raise RestException(json.loads(response.text))
+        raise MlflowException("%s. Response body: '%s'" % (base_msg, response.text))
+    return response
+
+
+class NumpyEncoder(JSONEncoder):
+    """ Special json encoder for numpy types.
+    Note that some numpy types doesn't have native python equivalence,
+    hence json.dumps will raise TypeError.
+    In this case, you'll need to convert your numpy types into its closest python equivalence.
+    """
+
+    def default(self, o):  # pylint: disable=E0202
+        if isinstance(o, numpy.generic):
+            return numpy.asscalar(o)
+        return JSONEncoder.default(self, o)
+
+
+class MlflowHostCreds(object):
+    """
+    Provides a hostname and optional authentication for talking to an MLflow tracking server.
+    :param host: Hostname (e.g., http://localhost:5000) to MLflow server. Required.
+    :param username: Username to use with Basic authentication when talking to server.
+        If this is specified, password must also be specified.
+    :param password: Password to use with Basic authentication when talking to server.
+        If this is specified, username must also be specified.
+    :param token: Token to use with Bearer authentication when talking to server.
+        If provided, user/password authentication will be ignored.
+    :param ignore_tls_verification: If true, we will not verify the server's hostname or TLS
+        certificate. This is useful for certain testing situations, but should never be
+        true in production.
+    """
+    def __init__(self, host, username=None, password=None, token=None,
+                 ignore_tls_verification=False):
+        if not host:
+            raise MlflowException("host is a required parameter for MlflowHostCreds")
+        self.host = host
+        self.username = username
+        self.password = password
+        self.token = token
+        self.ignore_tls_verification = ignore_tls_verification

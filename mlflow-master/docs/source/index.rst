@@ -11,8 +11,9 @@ It tackles three primary functions:
   inference platforms (:ref:`models`).
 
 MLflow is library-agnostic. You can use it with any machine learning library, and in any
-programming language, since all functions are accessible through a :ref:`rest_api`
-and :ref:`CLI<cli>`. For convenience, the project also includes a :ref:`python_api`.
+programming language, since all functions are accessible through a :ref:`rest-api`
+and :ref:`CLI<cli>`. For convenience, the project also includes a :ref:`python-api`, :ref:`R-api`, 
+and :ref:`java_api`.
 
 Get started using the :ref:`quickstart` or by reading about the :ref:`key concepts<concepts>`.
 
@@ -27,9 +28,11 @@ Get started using the :ref:`quickstart` or by reading about the :ref:`key concep
     models
     cli
     python_api/index
-    rest_api
+    R-api
+    java_api/index
+    rest-api
 
 .. warning::
 
-    The current version of MLflow is an alpha release. This means that APIs and storage formats
+    The current version of MLflow is a beta release. This means that APIs and storage formats
     are subject to breaking change.

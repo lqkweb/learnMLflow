@@ -1,10 +1,16 @@
+import codecs
+import gzip
 import os
 import shutil
+import tarfile
 import tempfile
 
 import yaml
 
-from mlflow.entities.file_info import FileInfo
+from mlflow.entities import FileInfo
+from mlflow.exceptions import MissingConfigException
+
+ENCODING = "utf-8"
 
 
 def is_directory(name):
@@ -93,10 +99,20 @@ def mkdir(root, name=None):  # noqa
     target = os.path.join(root, name) if name is not None else root
     try:
         if not exists(target):
-            os.mkdir(target)
+            os.makedirs(target)
             return target
     except OSError as e:
         raise e
+
+
+def make_containing_dirs(path):
+    """
+    Create the base directory for a given file path if it does not exist; also creates parent
+    directories.
+    """
+    dir_name = os.path.dirname(path)
+    if not os.path.exists(dir_name):
+        os.makedirs(dir_name)
 
 
 def write_yaml(root, file_name, data, overwrite=False):
@@ -109,7 +125,7 @@ def write_yaml(root, file_name, data, overwrite=False):
     :param overwrite: If True, will overwrite existing files
     """
     if not exists(root):
-        raise Exception("Parent directory '%s' does not exist." % root)
+        raise MissingConfigException("Parent directory '%s' does not exist." % root)
 
     file_path = os.path.join(root, file_name)
     yaml_file_name = file_path if file_path.endswith(".yaml") else file_path + ".yaml"
@@ -134,11 +150,12 @@ def read_yaml(root, file_name):
     :return: Data in yaml file as dictionary
     """
     if not exists(root):
-        raise Exception("Cannot read '%s'. Parent dir '%s' does not exist." % (file_name, root))
+        raise MissingConfigException(
+            "Cannot read '%s'. Parent dir '%s' does not exist." % (file_name, root))
 
     file_path = os.path.join(root, file_name)
     if not exists(file_path):
-        raise Exception("Yaml file '%s' does not exist." % file_path)
+        raise MissingConfigException("Yaml file '%s' does not exist." % file_path)
 
     try:
         with open(file_path, 'r') as yaml_file:
@@ -176,18 +193,32 @@ class TempDir(object):
         return os.path.join("./", *path) if self._chdr else os.path.join(self._path, *path)
 
 
-def read_file(parent_path, file_name):
+def read_file_lines(parent_path, file_name):
     """
-    Return the contents of the file
+    Return the contents of the file as an array where each element is a separate line.
 
-    :param parent_path: Full path to the directory that contains the file
-    :param file_name: Leaf file name
+    :param parent_path: Full path to the directory that contains the file.
+    :param file_name: Leaf file name.
 
-    :return: All lines in the file as an array
+    :return: All lines in the file as an array.
     """
     file_path = os.path.join(parent_path, file_name)
-    with open(file_path, 'r') as f:
+    with codecs.open(file_path, mode='r', encoding=ENCODING) as f:
         return f.readlines()
+
+
+def read_file(parent_path, file_name):
+    """
+    Return the contents of the file.
+
+    :param parent_path: Full path to the directory that contains the file.
+    :param file_name: Leaf file name.
+
+    :return: The contents of the file.
+    """
+    file_path = os.path.join(parent_path, file_name)
+    with codecs.open(file_path, mode='r', encoding=ENCODING) as f:
+        return f.read()
 
 
 def get_file_info(path, rel_path):
@@ -219,14 +250,37 @@ def get_relative_path(root_path, target_path):
     return os.path.relpath(target_path, common_prefix)
 
 
+def mv(target, new_parent):
+    shutil.move(target, new_parent)
+
+
 def write_to(filename, data):
-    with open(filename, "w") as handle:
+    with codecs.open(filename, mode="w", encoding=ENCODING) as handle:
         handle.write(data)
 
 
 def append_to(filename, data):
     with open(filename, "a") as handle:
         handle.write(data)
+
+
+def make_tarfile(output_filename, source_dir, archive_name, custom_filter=None):
+    # Helper for filtering out modification timestamps
+    def _filter_timestamps(tar_info):
+        tar_info.mtime = 0
+        return tar_info if custom_filter is None else custom_filter(tar_info)
+
+    unzipped_filename = tempfile.mktemp()
+    try:
+        with tarfile.open(unzipped_filename, "w") as tar:
+            tar.add(source_dir, arcname=archive_name, filter=_filter_timestamps)
+        # When gzipping the tar, don't include the tar's filename or modification time in the
+        # zipped archive (see https://docs.python.org/3/library/gzip.html#gzip.GzipFile)
+        with gzip.GzipFile(filename="", fileobj=open(output_filename, 'wb'), mode='wb', mtime=0)\
+                as gzipped_tar, open(unzipped_filename, 'rb') as tar:
+            gzipped_tar.write(tar.read())
+    finally:
+        os.remove(unzipped_filename)
 
 
 def _copy_project(src_path, dst_path=""):
@@ -264,3 +318,27 @@ def _copy_project(src_path, dst_path=""):
     shutil.copytree(src_path, os.path.join(dst_path, mlflow_dir),
                     ignore=_docker_ignore(src_path))
     return mlflow_dir
+
+
+def _copy_file_or_tree(src, dst, dst_dir=None):
+    """
+    :return: The path to the copied artifacts, relative to `dst`
+    """
+    dst_subpath = os.path.basename(os.path.abspath(src))
+    if dst_dir is not None:
+        dst_subpath = os.path.join(dst_dir, dst_subpath)
+    dst_path = os.path.join(dst, dst_subpath)
+
+    dst_dirpath = os.path.dirname(dst_path)
+    if not os.path.exists(dst_dirpath):
+        os.makedirs(dst_dirpath)
+
+    if os.path.isfile(src):
+        shutil.copy(src=src, dst=dst_path)
+    else:
+        shutil.copytree(src=src, dst=dst_path)
+    return dst_subpath
+
+
+def get_parent_dir(path):
+    return os.path.abspath(os.path.join(path, os.pardir))

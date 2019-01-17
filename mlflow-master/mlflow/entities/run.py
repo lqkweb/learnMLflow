@@ -6,7 +6,7 @@ from mlflow.protos.service_pb2 import Run as ProtoRun
 
 class Run(_MLflowObject):
     """
-    Run object for python client. Backend stores will hydrate this object in APIs.
+    Run object.
     """
 
     def __init__(self, run_info, run_data):
@@ -17,10 +17,20 @@ class Run(_MLflowObject):
 
     @property
     def info(self):
+        """
+        The run metadata, such as the run id, start time, and status.
+
+        :rtype: :py:class:`mlflow.entities.RunInfo`
+        """
         return self._info
 
     @property
     def data(self):
+        """
+        The run data, including metrics, parameters, and tags.
+
+        :rtype: :py:class:`mlflow.entities.RunData`
+        """
         return self._data
 
     def to_proto(self):
@@ -32,7 +42,7 @@ class Run(_MLflowObject):
 
     @classmethod
     def from_proto(cls, proto):
-        return cls(proto.info, proto.data)
+        return cls(RunInfo.from_proto(proto.info), RunData.from_proto(proto.data))
 
     @classmethod
     def from_dictionary(cls, the_dict):
@@ -43,14 +53,4 @@ class Run(_MLflowObject):
         return cls(the_info, the_data)
 
     def to_dictionary(self):
-        return {"info": dict(self.info), "data": dict(self.data)}
-
-    def __iter__(self):
-        the_dict = self.to_dictionary()
-        for k in the_dict:
-            yield k, the_dict[k]
-
-    @classmethod
-    def _properties(cls):
-        # This method should never get called since __iter__ from base class has been overridden.
-        raise NotImplementedError
+        return {"info": dict(self.info), "data": self.data.to_dictionary()}
