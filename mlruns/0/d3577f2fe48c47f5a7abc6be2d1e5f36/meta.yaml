@@ -1,0 +1,13 @@
+artifact_uri: /Users/leiqiankun/PycharmProjects/lqkcode/tianchi/learnMLflow/mlruns/0/d3577f2fe48c47f5a7abc6be2d1e5f36/artifacts
+end_time: 1532652951397
+entry_point_name: ''
+experiment_id: 0
+name: Run 0
+run_uuid: d3577f2fe48c47f5a7abc6be2d1e5f36
+source_name: mlflow-master/example/quickstart/test_sklearn.py
+source_type: 4
+source_version: 385286a23a06d15001b7f2f29100deae2cdf68db
+start_time: 1532652951203
+status: 3
+tags: []
+user_id: leiqiankun
